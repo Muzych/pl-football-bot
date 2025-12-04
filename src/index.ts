@@ -74,36 +74,32 @@ export default {
     });
 
 	bot.command("matches", async (ctx) => {
-		// 1. 获取用户输入的参数 (去掉命令本身)
-		// 例如用户发 "/matches 曼联"，这里 match 就是 "曼联"
 		const query = ctx.match;
-  
 		if (!query) {
-		  return ctx.reply("❌ 请输入球队名字。\n例如：`/matches 曼联` 或 `/matches 枪手`", { parse_mode: "Markdown" });
+		  return ctx.reply("❌ 请输入球队名字。\n例如：`/matches 曼联`", { parse_mode: "Markdown" });
 		}
   
-		// 2. 查找球队 ID
 		const team = findTeamId(query);
 		if (!team) {
-		  return ctx.reply(`❌ 找不到球队 "${query}"。\n请尝试使用常用中文名或英文名。`);
+		  return ctx.reply(`❌ 找不到球队 "${query}"。`);
 		}
   
 		try {
-		  // 3. 缓存 Key (针对每个球队单独缓存)
-		  const cacheKey = `fixtures_${team.id}`;
+		  // 1. 缓存 Key (合并版)
+		  const cacheKey = `overview_${team.id}`;
 		  const cachedText = await env.FOOTBALL_CACHE.get(cacheKey);
   
 		  if (cachedText) {
-			console.log(`Cache Hit for ${team.name}`);
+			console.log(`Cache Hit for ${team.name} overview`);
 			await ctx.reply(cachedText + "\n⚡️ (来自高速缓存)", { parse_mode: "Markdown" });
 			return;
 		  }
   
-		  // 4. 请求 API：查询该球队未来的比赛
-		  // status=SCHEDULED (未赛), limit=5 (最近5场)
-		  await ctx.reply(`🔍 正在查询 ${team.name} 的赛程...`);
-		  
-		  const url = `https://api.football-data.org/v4/teams/${team.id}/matches?status=SCHEDULED&limit=5`;
+		  await ctx.reply(`🔍 正在查询 ${team.name} 的赛季数据...`);
+  
+		  // 2. 请求 API：获取该球队本赛季【所有】比赛
+		  // 不加 limit，也不加 status，默认返回本赛季全部
+		  const url = `https://api.football-data.org/v4/teams/${team.id}/matches`;
 		  const response = await fetch(url, {
 			headers: { "X-Auth-Token": env.FOOTBALL_API_KEY },
 		  });
@@ -111,44 +107,80 @@ export default {
 		  if (!response.ok) throw new Error(`API Error: ${response.status}`);
 		  const data = await response.json();
   
-		  // 5. 格式化数据
-		  if (data.matches.length === 0) {
-			await ctx.reply(`📅 ${team.name} 近期没有安排比赛。`);
-			return;
+		  // 3. 数据处理：在内存中拆分 Past 和 Future
+		  const allMatches = data.matches || [];
+		  
+		  // A. 筛选已结束的 (FINISHED)
+		  const finishedMatches = allMatches.filter(m => m.status === "FINISHED");
+		  // 取最后 3 场，并倒序 (让最近的一场排最上面)
+		  const last3 = finishedMatches.slice(-3).reverse();
+  
+		  // B. 筛选未开始的 (SCHEDULED, TIMED, POSTPONED)
+		  const futureMatches = allMatches.filter(m => m.status !== "FINISHED");
+		  // 取最靠前的 3 场
+		  const next3 = futureMatches.slice(0, 3);
+  
+		  // 4. 构建回复文本
+		  let message = `📊 **${team.name} 比赛概况**\n`;
+		  message += "========================\n\n";
+  
+		  // --- 第一部分：近 3 场赛果 ---
+		  message += "⏮ **近期赛果 (近3场)**\n";
+		  if (last3.length === 0) {
+			message += "暂无已完赛数据\n";
+		  } else {
+			last3.forEach(m => {
+			  const dateStr = formatTime(m.utcDate);
+			  const isHome = m.homeTeam.id === team.id;
+			  const homeScore = m.score.fullTime.home;
+			  const awayScore = m.score.fullTime.away;
+			  
+			  // 胜平负 Emoji
+			  let emoji = "⚪"; 
+			  if (homeScore !== awayScore) {
+				if (isHome) emoji = homeScore > awayScore ? "🟢" : "🔴"; // 主队视角
+				else emoji = awayScore > homeScore ? "🟢" : "🔴"; // 客队视角
+			  }
+  
+			  const opponent = isHome ? m.awayTeam.shortName : m.homeTeam.shortName;
+			  const scoreStr = `${homeScore}-${awayScore}`;
+  
+			  // 格式：🟢 曼联 3-0 埃弗顿 (12-01)
+			  // 这里为了紧凑，调整了格式
+			  const myTeamStr = isHome ? team.name : opponent; // 主队名
+			  const otherTeamStr = isHome ? opponent : team.name; // 客队名
+			  
+			  // 更简洁的显示： 🟢 3-0 vs 埃弗顿 (主)
+			  const resultStr = isHome ? `${homeScore}-${awayScore}` : `${awayScore}-${homeScore}`; // 让主队分总在左边? 不，保持原始比分更真实
+			  
+			  // 最终格式： 🟢 3-0 vs 埃弗顿
+			  const displayOpponent = opponent;
+			  const location = isHome ? "🏠" : "✈️";
+			  
+			  message += `${emoji} \`${homeScore}:${awayScore}\` ${location} ${displayOpponent}\n`;
+			  message += `   └── 🗓 ${dateStr} (${m.competition.code})\n`;
+			});
 		  }
   
-		  let message = `📅 **${team.name} 未来赛程**\n`;
-		  message += "--------------------------------\n";
+		  message += "\n------------------------\n\n";
   
-		  data.matches.forEach(m => {
-			// 转换时间 (UTC -> 北京时间)
-			const date = new Date(m.utcDate);
-			// 简单的时间格式化: "12-07 20:30"
-			const dateStr = date.toLocaleString("zh-CN",{
-				timeZone: "Asia/Shanghai",
-				month: "2-digit",
-				day: "2-digit",
-				hour: "2-digit",
-				minute: "2-digit",
-				hour12: false,
-				
-			})
-			
-			// 判断主客场
-			const isHome = m.homeTeam.id === team.id;
-			const opponent = isHome ? m.awayTeam.shortName : m.homeTeam.shortName;
-			const homeTag = isHome ? "🏠 主" : "✈️ 客";
+		  // --- 第二部分：未来 3 场赛程 ---
+		  message += "⏭ **未来赛程 (下3场)**\n";
+		  if (next3.length === 0) {
+			message += "本赛季暂无后续安排\n";
+		  } else {
+			next3.forEach(m => {
+			  const dateStr = formatTime(m.utcDate);
+			  const isHome = m.homeTeam.id === team.id;
+			  const opponent = isHome ? m.awayTeam.shortName : m.homeTeam.shortName;
+			  const location = isHome ? "🏠" : "✈️";
   
-			// 赛事类型 (PL=英超, CL=欧冠, FAC=足总杯) - API可能返回多种赛事
-			const competition = m.competition.code; 
+			  message += `${location} vs **${opponent}**\n`;
+			  message += `   └── 🗓 ${dateStr} (${m.competition.code})\n`;
+			});
+		  }
   
-			message += `🗓 \`${dateStr}\` (${competition})\n`;
-			message += `${homeTag} vs **${opponent}**\n\n`;
-		  });
-  
-		  message += "--------------------------------";
-  
-		  // 6. 存入缓存 (缓存 10 分钟)
+		  // 5. 写入缓存 (10分钟)
 		  await env.FOOTBALL_CACHE.put(cacheKey, message, { expirationTtl: 600 });
   
 		  await ctx.reply(message, { parse_mode: "Markdown" });
@@ -163,6 +195,17 @@ export default {
   },
 };
 
+function formatTime(utcString) {
+	const date = new Date(utcString);
+	return date.toLocaleString('zh-CN', {
+	  timeZone: 'Asia/Shanghai',
+	  month: '2-digit',
+	  day: '2-digit',
+	  hour: '2-digit',
+	  minute: '2-digit',
+	  hour12: false
+	});
+}
 
 
 function findTeamId(input) {
@@ -175,7 +218,7 @@ function findTeamId(input) {
 	);
   }
 
-  const TEAMS = [
+const TEAMS = [
 	{ id: 57, name: "阿森纳", keywords: ["arsenal", "枪手", "兵工厂", "阿森纳"] },
 	{ id: 58, name: "维拉", keywords: ["aston", "villa", "维拉"] },
 	{ id: 1044, name: "伯恩茅斯", keywords: ["bournemouth", "伯恩茅斯"] },
