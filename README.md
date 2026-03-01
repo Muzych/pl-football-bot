@@ -58,6 +58,22 @@ Worker 还配置了定时任务（每 15 分钟）用于：
 - 推送订阅球队的开赛提醒与赛后赛果
 - 追踪积分榜名次变化并通知订阅用户
 
+## GitHub Actions 自动部署
+
+仓库已包含自动部署工作流：
+
+- 文件：`.github/workflows/deploy.yml`
+- 触发：`push` 到 `master` 或手动触发 `workflow_dispatch`
+- 流程：安装依赖 -> 运行测试 -> 同步 Cloudflare secrets -> `wrangler deploy`
+
+你需要在 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 中配置以下 secrets：
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `TG_BOT_TOKEN`
+- `TG_WEBHOOK_SECRET`
+- `FOOTBALL_API_KEY`
+
 ## Telegram Webhook 配置
 
 将 Worker URL 与 secret token 注册为 Telegram webhook：
