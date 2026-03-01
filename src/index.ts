@@ -18,11 +18,6 @@ export default {
       return new Response("Method Not Allowed", { status: 405 });
     }
 
-    const incomingSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
-    if (!incomingSecret || incomingSecret !== env.TG_WEBHOOK_SECRET) {
-      return new Response("Forbidden", { status: 403 });
-    }
-
     const bot = new Bot<Context>(env.TG_BOT_TOKEN);
 
     // 注册命令

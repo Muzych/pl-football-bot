@@ -245,15 +245,19 @@ function createTestEnv(initialCache: Record<string, string> = {}) {
 async function callWorkerWithUpdate(
   text: string,
   env: TestEnv,
-  headerSecret: string = env.TG_WEBHOOK_SECRET,
+  headerSecret?: string,
   chatId = 999,
 ) {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (headerSecret) {
+    headers["X-Telegram-Bot-Api-Secret-Token"] = headerSecret;
+  }
+
   const request = new Request("https://example.com", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "X-Telegram-Bot-Api-Secret-Token": headerSecret,
-    },
+    headers,
     body: JSON.stringify(makeTelegramUpdate(text, chatId)),
   });
 
@@ -320,32 +324,14 @@ describe("pl-football-bot worker", () => {
     expect(await response.text()).toContain("Football Bot is running");
   });
 
-  it("rejects webhook request when secret token is invalid", async () => {
+  it("accepts webhook request without secret token", async () => {
     const { env } = createTestEnv();
     const network = createNetworkMock();
     vi.stubGlobal("fetch", network.mock);
 
-    const request = new Request("https://example.com", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "X-Telegram-Bot-Api-Secret-Token": "wrong-secret",
-      },
-      body: JSON.stringify(makeTelegramUpdate("/start")),
-    });
-
-    const ctx = {
-      waitUntil() {
-        return undefined;
-      },
-      passThroughOnException() {
-        return undefined;
-      },
-    };
-
-    const response = await worker.fetch(request, env as unknown as Env, ctx as ExecutionContext);
-    expect(response.status).toBe(403);
-    expect(network.mock).not.toHaveBeenCalled();
+    const { response, replies } = await callWorkerWithUpdate("/start", env, undefined);
+    expect(response.status).toBe(200);
+    expect(replies.some((msg) => msg.text.includes("英超助手"))).toBe(true);
   });
 
   it("handles /start and includes new commands", async () => {
@@ -353,7 +339,7 @@ describe("pl-football-bot worker", () => {
     const network = createNetworkMock();
     vi.stubGlobal("fetch", network.mock);
 
-    const { response, replies } = await callWorkerWithUpdate("/start", env);
+    const { response, replies } = await callWorkerWithUpdate("/start", env, env.TG_WEBHOOK_SECRET);
 
     expect(response.status).toBe(200);
     expect(replies.some((msg) => msg.text.includes("/form"))).toBe(true);
