@@ -1,7 +1,7 @@
 import { Context } from "grammy";
 import { Env, Match } from "../types";
-import { findTeamId, mapTeamName } from "../utils/teams.ts";
-import { formatTime } from "../utils/format.ts";
+import { findTeamId, mapTeamName } from "../utils/teams";
+import { formatTime } from "../utils/format";
 
 export async function handleMatches(ctx: Context, env: Env) {
   const query = typeof ctx.match === "string" ? ctx.match : "";

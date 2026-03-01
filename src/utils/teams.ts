@@ -28,14 +28,18 @@ export interface Team {
     { id: 349, name: "伊普斯维奇", keywords: ["ipswich", "拖拉机"] }
   ];
   
-  export function findTeamId(input: string | undefined): Team | undefined {
+export function findTeamId(input: string | undefined): Team | undefined {
     if (!input) return undefined;
     const lowerInput = input.toLowerCase().trim();
     return TEAMS.find(t => 
       t.keywords.some(k => k.includes(lowerInput)) || 
       t.name.includes(lowerInput)
     );
-  }
+}
+
+export function getTeamById(teamId: number): Team | undefined {
+  return TEAMS.find((team) => team.id === teamId);
+}
   
   export function mapTeamName(originalName: string): string {
     const dict: Record<string, string> = { 

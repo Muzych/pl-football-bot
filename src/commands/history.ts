@@ -3,6 +3,7 @@ import { Context } from "grammy";
 import { Env } from "../types";
 import { findTeamId } from "../utils/teams";
 import { formatTime } from "../utils/format";
+import { fetchJsonOrThrow } from "../utils/common";
 
 export async function handleHistory(ctx: Context, env: Env) {
   const input = typeof ctx.match === "string" ? ctx.match : "";
@@ -18,7 +19,8 @@ export async function handleHistory(ctx: Context, env: Env) {
   if (!teamB) return ctx.reply(`❌ 找不到球队: ${parts[1]}`);
   if (teamA.id === teamB.id) return ctx.reply("❌ 请输入两支不同的球队。");
 
-  const cacheKey = `h2h_v2_${teamA.id}_${teamB.id}`; // 换个 key 避免读取旧缓存
+  const [id1, id2] = [teamA.id, teamB.id].sort((a, b) => a - b);
+  const cacheKey = `h2h_v3_${id1}_${id2}`;
   const cached = await env.FOOTBALL_CACHE.get(cacheKey);
   
   if (cached) {
@@ -33,8 +35,7 @@ export async function handleHistory(ctx: Context, env: Env) {
     // 我们查 TeamA 最近 50 场，看能不能碰到 TeamB
     // =================================================================
     const url1 = `https://api.football-data.org/v4/teams/${teamA.id}/matches?limit=50&status=FINISHED`;
-    const res1 = await fetch(url1, { headers: { "X-Auth-Token": env.FOOTBALL_API_KEY } });
-    const data1: any = await res1.json();
+    const data1: any = await fetchJsonOrThrow(url1, env.FOOTBALL_API_KEY);
 
     // 在最近比赛中找到任何一场对阵 TeamB 的比赛
     const targetMatch = (data1.matches || []).find((m: any) => 
@@ -48,14 +49,15 @@ export async function handleHistory(ctx: Context, env: Env) {
     // =================================================================
     // 步骤 2: 使用专门的 Head2Head 接口查询历史详情
     // =================================================================
-    const h2hUrl = `https://api.football-data.org/v4/matches/${targetMatch.id}/head2head?limit=5`; // limit=10 获取最近10次交手
-    const res2 = await fetch(h2hUrl, { headers: { "X-Auth-Token": env.FOOTBALL_API_KEY } });
-    const h2hData: any = await res2.json();
+    const h2hUrl = `https://api.football-data.org/v4/matches/${targetMatch.id}/head2head?limit=5`;
+    const h2hData: any = await fetchJsonOrThrow(h2hUrl, env.FOOTBALL_API_KEY);
     
-    // API 返回的 aggregates 包含了统计数据
-    const stats = h2hData.aggregates; 
     // API 返回的 matches 包含了历史交手列表
-    const historyMatches = h2hData.matches; 
+    const historyMatches = h2hData.matches || [];
+
+    if (!historyMatches.length) {
+      return ctx.reply(`📊 未找到 ${teamA.name} 与 ${teamB.name} 的历史交锋数据。`);
+    }
 
     // --- 数据处理 (站在 TeamA 的视角) ---
     // API 的 aggregate 统计是基于 "homeTeam" 和 "awayTeam" 的，不是基于 TeamA 的

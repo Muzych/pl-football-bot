@@ -10,6 +10,9 @@
 	"observability": {
 		"enabled": true
 	},
+	"triggers": {
+		"crons": ["*/15 * * * *"]
+	},
 	"kv_namespaces": [
 		{
 			"binding": "FOOTBALL_CACHE",

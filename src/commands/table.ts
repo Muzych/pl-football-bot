@@ -1,6 +1,6 @@
 import { Context } from "grammy";
 import { Env } from "../types";
-import { mapTeamName } from "../utils/teams.ts";
+import { mapTeamName } from "../utils/teams";
 
 export async function handleTable(ctx: Context, env: Env) {
   try {
